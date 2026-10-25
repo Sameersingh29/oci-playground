@@ -51,6 +51,11 @@ jobs:
             --query 'data."available-count"' \
             --raw-output)
           
+          # If RESULT is empty (null), set it to 0 so the math check doesn't fail
+          if [ -z "$RESULT" ] || [ "$RESULT" == "null" ]; then
+            RESULT=0
+          fi
+          
           echo "Capacity found: $RESULT"
           if [ "$RESULT" -gt 0 ]; then
             echo "has_capacity=true" >> $GITHUB_OUTPUT
