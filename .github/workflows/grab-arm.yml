@@ -1,0 +1,62 @@
+name: OCI ARM Capacity Grabber
+
+on:
+  schedule:
+    # Runs every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows you to run it manually by clicking a button
+
+jobs:
+  check-and-deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ad: ["ESfE:AP-MUMBAI-1-AD-1", "ESfE:AP-MUMBAI-1-AD-2", "ESfE:AP-MUMBAI-1-AD-3"]
+      fail-fast: false 
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Setup OCI CLI
+        uses: oracle-actions/configure-oci-cli@v1
+        with:
+          user: ${{ secrets.OCI_CLI_USER }}
+          tenancy: ${{ secrets.OCI_CLI_TENANCY }}
+          fingerprint: ${{ secrets.OCI_CLI_FINGERPRINT }}
+          key: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+
+      - name: Check Capacity for ${{ matrix.ad }}
+        id: check
+        run: |
+          RESULT=$(oci compute compute-capacity-report create \
+            --compartment-id ${{ secrets.OCI_CLI_TENANCY }} \
+            --availability-domain "${{ matrix.ad }}" \
+            --shape-availabilities '[{"instanceShape":"VM.Standard.A1.Flex","instanceShapeConfig":{"ocpus":2,"memoryInGBs":12}}]' \
+            --query 'data."available-count"' \
+            --raw-output)
+          
+          echo "Capacity found: $RESULT"
+          if [ "$RESULT" -gt 0 ]; then
+            echo "has_capacity=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_capacity=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Apply for ${{ matrix.ad }}
+        if: steps.check.outputs.has_capacity == 'true'
+        env:
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_CLI_TENANCY }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_CLI_TENANCY }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          # Update the AD in main.tf dynamically based on the matrix
+          sed -i "s|availability_domain = \".*\"|availability_domain = \"${{ matrix.ad }}\"|g" main.tf
+          
+          terraform init
+          terraform apply --auto-approve
