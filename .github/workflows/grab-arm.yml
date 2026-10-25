@@ -23,13 +23,23 @@ jobs:
         with:
           terraform_version: 1.5.0
 
-      - name: Setup OCI CLI
-        uses: oracle-actions/configure-oci-cli@v1
-        with:
-          user: ${{ secrets.OCI_CLI_USER }}
-          tenancy: ${{ secrets.OCI_CLI_TENANCY }}
-          fingerprint: ${{ secrets.OCI_CLI_FINGERPRINT }}
-          key: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+      - name: Install OCI CLI
+        run: |
+          curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh | bash -s -- --accept-all-defaults
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Configure OCI CLI
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          
+          echo "[DEFAULT]" > ~/.oci/config
+          echo "user=${{ secrets.OCI_CLI_USER }}" >> ~/.oci/config
+          echo "tenancy=${{ secrets.OCI_CLI_TENANCY }}" >> ~/.oci/config
+          echo "fingerprint=${{ secrets.OCI_CLI_FINGERPRINT }}" >> ~/.oci/config
+          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
+          echo "region=ap-mumbai-1" >> ~/.oci/config
 
       - name: Check Capacity for ${{ matrix.ad }}
         id: check
@@ -54,6 +64,7 @@ jobs:
           TF_VAR_tenancy_ocid: ${{ secrets.OCI_CLI_TENANCY }}
           TF_VAR_compartment_ocid: ${{ secrets.OCI_CLI_TENANCY }}
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          OCI_CLI_REGION: ap-mumbai-1 
         run: |
           # Update the AD in main.tf dynamically based on the matrix
           sed -i "s|availability_domain = \".*\"|availability_domain = \"${{ matrix.ad }}\"|g" main.tf
