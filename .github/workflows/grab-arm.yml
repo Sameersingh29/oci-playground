@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ad: ["ESfE:AP-MUMBAI-1-AD-1", "ESfE:AP-MUMBAI-1-AD-2", "ESfE:AP-MUMBAI-1-AD-3"]
+        # Mumbai only has AD-1, so we removed AD-2 and AD-3 to stop API errors
+        ad: ["ESfE:AP-MUMBAI-1-AD-1"]
       fail-fast: false 
     
     steps:
@@ -47,7 +48,7 @@ jobs:
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: True
           SUPPRESS_LABEL_WARNING: True
         run: |
-          # Add a random delay between 5 and 15 seconds to prevent Oracle API rate-limiting
+          # Add a random delay to prevent Oracle API rate-limiting
           sleep $((RANDOM % 10 + 5))
 
           RESULT=$(oci compute compute-capacity-report create \
@@ -77,8 +78,26 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           OCI_CLI_REGION: ap-mumbai-1 
         run: |
-          # Update the AD in main.tf dynamically based on the matrix
+          # Update the AD in main.tf dynamically
           sed -i "s|availability_domain = \".*\"|availability_domain = \"${{ matrix.ad }}\"|g" main.tf
           
           terraform init
           terraform apply --auto-approve
+
+      - name: Send Email Notification
+        # Only runs if capacity was found AND Terraform successfully applied
+        if: steps.check.outputs.has_capacity == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🎉 OCI ARM Instance Provisioned in ${{ matrix.ad }}!"
+          to: sameerchandra12@gmail.com
+          from: GitHub Actions
+          body: |
+            Success! An Always Free ARM instance was provisioned in Mumbai.
+            
+            Check your OCI Console (Compute -> Instances) to find your public IP.
+            You can also view the workflow log here: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
