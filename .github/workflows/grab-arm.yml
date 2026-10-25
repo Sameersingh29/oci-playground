@@ -2,16 +2,18 @@ name: OCI ARM Capacity Grabber
 
 on:
   schedule:
-    # Runs every 5 minutes
     - cron: '*/5 * * * *'
-  workflow_dispatch: # Allows you to run it manually by clicking a button
+  workflow_dispatch:
+
+# Grant the workflow permission to disable itself
+permissions:
+  actions: write
 
 jobs:
   check-and-deploy:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Mumbai only has AD-1, so we removed AD-2 and AD-3 to stop API errors
         ad: ["ESfE:AP-MUMBAI-1-AD-1"]
       fail-fast: false 
     
@@ -48,7 +50,6 @@ jobs:
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: True
           SUPPRESS_LABEL_WARNING: True
         run: |
-          # Add a random delay to prevent Oracle API rate-limiting
           sleep $((RANDOM % 10 + 5))
 
           RESULT=$(oci compute compute-capacity-report create \
@@ -58,7 +59,6 @@ jobs:
             --query 'data."available-count"' \
             --raw-output)
           
-          # If RESULT is empty (null), set it to 0 so the math check doesn't fail
           if [ -z "$RESULT" ] || [ "$RESULT" == "null" ]; then
             RESULT=0
           fi
@@ -71,6 +71,7 @@ jobs:
           fi
 
       - name: Terraform Apply for ${{ matrix.ad }}
+        id: tf_apply
         if: steps.check.outputs.has_capacity == 'true'
         env:
           TF_VAR_tenancy_ocid: ${{ secrets.OCI_CLI_TENANCY }}
@@ -78,15 +79,12 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
           OCI_CLI_REGION: ap-mumbai-1 
         run: |
-          # Update the AD in main.tf dynamically
           sed -i "s|availability_domain = \".*\"|availability_domain = \"${{ matrix.ad }}\"|g" main.tf
-          
           terraform init
           terraform apply --auto-approve
 
       - name: Send Email Notification
-        # Only runs if capacity was found AND Terraform successfully applied
-        if: steps.check.outputs.has_capacity == 'true'
+        if: steps.check.outputs.has_capacity == 'true' && success()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -98,6 +96,13 @@ jobs:
           from: GitHub Actions
           body: |
             Success! An Always Free ARM instance was provisioned in Mumbai.
-            
             Check your OCI Console (Compute -> Instances) to find your public IP.
-            You can also view the workflow log here: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            This workflow has now disabled itself to prevent further runs.
+
+      - name: Disable Workflow on Success
+        if: steps.check.outputs.has_capacity == 'true' && success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Disabling the workflow to prevent future runs..."
+          gh workflow disable "OCI ARM Capacity Grabber"
