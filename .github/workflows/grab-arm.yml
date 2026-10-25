@@ -43,9 +43,12 @@ jobs:
 
       - name: Check Capacity for ${{ matrix.ad }}
         id: check
+        env:
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: True
+          SUPPRESS_LABEL_WARNING: True
         run: |
-          # Add a random delay between 1 and 10 seconds to prevent Oracle API rate-limiting
-          sleep $((RANDOM % 10 + 1))
+          # Add a random delay between 5 and 15 seconds to prevent Oracle API rate-limiting
+          sleep $((RANDOM % 10 + 5))
 
           RESULT=$(oci compute compute-capacity-report create \
             --compartment-id ${{ secrets.OCI_CLI_TENANCY }} \
