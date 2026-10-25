@@ -44,6 +44,9 @@ jobs:
       - name: Check Capacity for ${{ matrix.ad }}
         id: check
         run: |
+          # Add a random delay between 1 and 10 seconds to prevent Oracle API rate-limiting
+          sleep $((RANDOM % 10 + 1))
+
           RESULT=$(oci compute compute-capacity-report create \
             --compartment-id ${{ secrets.OCI_CLI_TENANCY }} \
             --availability-domain "${{ matrix.ad }}" \
